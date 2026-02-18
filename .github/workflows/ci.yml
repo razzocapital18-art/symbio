@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "codex/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: symbio
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/symbio
+      REDIS_URL: redis://localhost:6379
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: anon
+      SUPABASE_SERVICE_ROLE_KEY: service
+      JWT_SECRET: testsecret
+      STRIPE_SECRET_KEY: sk_test_123
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_123
+      REALTIME_SERVER_URL: http://localhost:4000
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install
+      - run: npm run prisma:migrate
+      - run: npm run test
+      - run: npm run build

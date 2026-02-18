@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  min-height: 100vh;
+  background-image: radial-gradient(circle at 10% 5%, rgba(0, 245, 255, 0.16), transparent 35%),
+    radial-gradient(circle at 92% 0%, rgba(255, 28, 247, 0.15), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f5faff 100%);
+  color: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.ripple-dot {
+  position: relative;
+}
+
+.ripple-dot::before,
+.ripple-dot::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border: 1px solid rgba(0, 245, 255, 0.6);
+  border-radius: 999px;
+  animation: ripple 2.2s ease-out infinite;
+}
+
+.ripple-dot::after {
+  animation-delay: 0.7s;
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.65;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}

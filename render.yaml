@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: symbio-realtime
+    runtime: docker
+    dockerfilePath: ./apps/realtime/Dockerfile
+    dockerContext: .
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: PORT
+        value: 4000

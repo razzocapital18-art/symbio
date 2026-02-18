@@ -1,0 +1,309 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  HUMAN
+  AGENT_BUILDER
+}
+
+enum TaskType {
+  AGENT_TO_HUMAN
+  HUMAN_TO_AGENT
+}
+
+enum TaskCategory {
+  PHYSICAL
+  DIGITAL
+  CREATIVE
+}
+
+enum TaskStatus {
+  OPEN
+  NEGOTIATING
+  IN_PROGRESS
+  COMPLETED
+  DISPUTED
+  CANCELED
+}
+
+enum HireStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  DISPUTED
+  CANCELED
+}
+
+enum ProposalStatus {
+  OPEN
+  FUNDED
+  CLOSED
+}
+
+enum ReportStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+}
+
+enum PaymentMethod {
+  FIAT
+  CRYPTO
+}
+
+enum TransactionDirection {
+  CREDIT
+  DEBIT
+}
+
+model User {
+  id               String            @id @default(cuid())
+  authId           String?           @unique
+  email            String            @unique
+  name             String
+  role             UserRole
+  skills           String[]
+  location         String?
+  portfolioUrl     String?
+  bio              String?
+  reputation       Float             @default(0.5)
+  wallet           Wallet?
+  agents           Agent[]           @relation("BuilderAgents")
+  postedTasks      Task[]            @relation("PostedByUser")
+  hiresAsPoster    Hire[]            @relation("PosterHires")
+  hiresAsWorker    Hire[]            @relation("WorkerUserHires")
+  proposals        Proposal[]        @relation("OwnerProposals")
+  investments      Investment[]      @relation("UserInvestments")
+  reports          Report[]          @relation("ReporterReports")
+  roomParticipants RoomParticipant[]
+  roomMessages     RoomMessage[]     @relation("UserMessages")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([role, reputation])
+}
+
+model Agent {
+  id               String            @id @default(cuid())
+  ownerId          String
+  owner            User              @relation("BuilderAgents", fields: [ownerId], references: [id], onDelete: Cascade)
+  name             String
+  description      String
+  goals            String[]
+  tools            Json
+  memory           Json
+  walletPubkey     String            @unique
+  reputation       Float             @default(0.5)
+  totalRevenue     Decimal           @default(0) @db.Decimal(18, 2)
+  wallet           Wallet?
+  postedTasks      Task[]            @relation("PostedByAgent")
+  hiresAsWorker    Hire[]            @relation("WorkerAgentHires")
+  proposals        Proposal[]
+  swarmEdgesFrom   SwarmEdge[]       @relation("SwarmFrom")
+  swarmEdgesTo     SwarmEdge[]       @relation("SwarmTo")
+  roomParticipants RoomParticipant[]
+  roomMessages     RoomMessage[]     @relation("AgentMessages")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([name])
+  @@index([reputation])
+}
+
+model Wallet {
+  id              String              @id @default(cuid())
+  userId          String?             @unique
+  agentId         String?             @unique
+  user            User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent           Agent?              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  stripeCustomerId String?
+  stripeConnectId String?
+  cryptoPubkey    String?
+  fiatBalance     Decimal             @default(0) @db.Decimal(18, 2)
+  cryptoBalance   Decimal             @default(0) @db.Decimal(18, 6)
+  transactions    WalletTransaction[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+}
+
+model WalletTransaction {
+  id         String               @id @default(cuid())
+  walletId   String
+  wallet     Wallet               @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  direction  TransactionDirection
+  method     PaymentMethod
+  amount     Decimal              @db.Decimal(18, 2)
+  reference  String?
+  metadata   Json?
+  createdAt  DateTime             @default(now())
+
+  @@index([walletId, createdAt])
+}
+
+model Task {
+  id           String       @id @default(cuid())
+  title        String
+  description  String
+  budget       Decimal      @db.Decimal(18, 2)
+  category     TaskCategory
+  type         TaskType
+  status       TaskStatus   @default(OPEN)
+  location     String?
+  posterUserId String?
+  posterAgentId String?
+  posterUser   User?        @relation("PostedByUser", fields: [posterUserId], references: [id], onDelete: SetNull)
+  posterAgent  Agent?       @relation("PostedByAgent", fields: [posterAgentId], references: [id], onDelete: SetNull)
+  proofUrl     String?
+  embedding    Json?
+  hires        Hire[]
+  reports      Report[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([category, status])
+  @@index([type, budget])
+  @@index([posterUserId])
+  @@index([posterAgentId])
+}
+
+model Hire {
+  id            String      @id @default(cuid())
+  taskId         String
+  task           Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  posterId       String
+  poster         User       @relation("PosterHires", fields: [posterId], references: [id], onDelete: Cascade)
+  workerUserId   String?
+  workerAgentId  String?
+  workerUser     User?      @relation("WorkerUserHires", fields: [workerUserId], references: [id], onDelete: SetNull)
+  workerAgent    Agent?     @relation("WorkerAgentHires", fields: [workerAgentId], references: [id], onDelete: SetNull)
+  status         HireStatus @default(PENDING)
+  offer          Decimal    @db.Decimal(18, 2)
+  escrowRef      String?
+  reviewRating   Int?
+  reviewComment  String?
+  proofUrl       String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([taskId, status])
+  @@index([posterId, createdAt])
+  @@index([workerUserId])
+  @@index([workerAgentId])
+}
+
+model Proposal {
+  id              String         @id @default(cuid())
+  agentId         String
+  ownerId         String
+  agent           Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  owner           User           @relation("OwnerProposals", fields: [ownerId], references: [id], onDelete: Cascade)
+  title           String
+  description     String
+  goalAmount      Decimal        @db.Decimal(18, 2)
+  raisedAmount    Decimal        @default(0) @db.Decimal(18, 2)
+  revenueSharePct Float
+  status          ProposalStatus @default(OPEN)
+  investments     Investment[]
+  dividends       Dividend[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model Investment {
+  id             String        @id @default(cuid())
+  proposalId     String
+  proposal       Proposal      @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  investorId     String
+  investor       User          @relation("UserInvestments", fields: [investorId], references: [id], onDelete: Cascade)
+  amount         Decimal       @db.Decimal(18, 2)
+  method         PaymentMethod
+  transactionRef String?
+  createdAt      DateTime      @default(now())
+
+  @@index([proposalId, investorId])
+}
+
+model Dividend {
+  id           String    @id @default(cuid())
+  proposalId   String
+  proposal     Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  amount       Decimal   @db.Decimal(18, 2)
+  distributedAt DateTime @default(now())
+  notes        String?
+}
+
+model SwarmEdge {
+  id            String    @id @default(cuid())
+  fromAgentId   String
+  toAgentId     String
+  scope         String
+  status        HireStatus @default(ACTIVE)
+  sharedContext Json
+  createdAt     DateTime @default(now())
+
+  fromAgent     Agent    @relation("SwarmFrom", fields: [fromAgentId], references: [id], onDelete: Cascade)
+  toAgent       Agent    @relation("SwarmTo", fields: [toAgentId], references: [id], onDelete: Cascade)
+
+  @@unique([fromAgentId, toAgentId, scope])
+}
+
+model Room {
+  id           String            @id @default(cuid())
+  name         String
+  createdBy    String?
+  participants RoomParticipant[]
+  messages     RoomMessage[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model RoomParticipant {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId   String?
+  agent     Agent?   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+
+  @@unique([roomId, userId])
+  @@unique([roomId, agentId])
+}
+
+model RoomMessage {
+  id            String   @id @default(cuid())
+  roomId         String
+  room           Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  senderUserId   String?
+  senderUser     User?   @relation("UserMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
+  senderAgentId  String?
+  senderAgent    Agent?  @relation("AgentMessages", fields: [senderAgentId], references: [id], onDelete: SetNull)
+  content        String
+  createdAt      DateTime @default(now())
+
+  @@index([roomId, createdAt])
+}
+
+model Report {
+  id         String      @id @default(cuid())
+  taskId      String
+  task        Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  reporterId  String
+  reporter    User        @relation("ReporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  reason      String
+  details     String?
+  status      ReportStatus @default(OPEN)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([status, createdAt])
+}

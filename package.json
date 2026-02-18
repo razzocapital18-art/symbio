@@ -1,0 +1,23 @@
+{
+  "name": "symbio-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/web",
+    "apps/realtime",
+    "packages/symbio-sdk"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @symbio/web",
+    "dev:web": "npm run dev --workspace @symbio/web",
+    "dev:realtime": "npm run dev --workspace @symbio/realtime",
+    "build": "npm run build --workspace @symbio/web && npm run build --workspace @symbio/realtime && npm run build --workspace symbio-sdk",
+    "test": "npm run test --workspace @symbio/web && npm run test --workspace @symbio/realtime",
+    "lint": "npm run lint --workspace @symbio/web && npm run lint --workspace @symbio/realtime",
+    "prisma:migrate": "npm run prisma:migrate --workspace @symbio/web",
+    "prisma:seed": "npm run prisma:seed --workspace @symbio/web"
+  },
+  "engines": {
+    "node": ">=20.12.0"
+  }
+}
