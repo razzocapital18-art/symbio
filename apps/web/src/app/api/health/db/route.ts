@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getResolvedDatabaseSource, getResolvedDatabaseUrl, prisma } from "@/lib/prisma";
 
 function parseDatabaseHostAndPort(connectionString: string | undefined) {
   if (!connectionString) {
@@ -15,11 +15,13 @@ function parseDatabaseHostAndPort(connectionString: string | undefined) {
 }
 
 export async function GET() {
-  const { host, port } = parseDatabaseHostAndPort(process.env.DATABASE_URL);
+  const resolvedDatabaseUrl = getResolvedDatabaseUrl();
+  const source = getResolvedDatabaseSource();
+  const { host, port } = parseDatabaseHostAndPort(resolvedDatabaseUrl);
 
   try {
     await prisma.$queryRaw`SELECT 1`;
-    return NextResponse.json({ ok: true, database: "connected", host, port });
+    return NextResponse.json({ ok: true, database: "connected", host, port, source });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown database error";
     return NextResponse.json(
@@ -28,6 +30,7 @@ export async function GET() {
         database: "disconnected",
         host,
         port,
+        source,
         error: message
       },
       { status: 500 }
