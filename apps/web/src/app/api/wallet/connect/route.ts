@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const schema = z.object({
   walletId: z.string(),
@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const supabase = getSupabaseAdminClient();
     const payload = schema.parse(await request.json());
 
     const [customer, account] = await Promise.all([
@@ -30,13 +31,17 @@ export async function POST(request: NextRequest) {
       return_url: payload.returnUrl
     });
 
-    await prisma.wallet.update({
-      where: { id: payload.walletId },
-      data: {
+    const walletUpdate = await supabase
+      .from("Wallet")
+      .update({
         stripeCustomerId: customer.id,
         stripeConnectId: account.id
-      }
-    });
+      } as never)
+      .eq("id", payload.walletId);
+
+    if (walletUpdate.error) {
+      return NextResponse.json({ error: walletUpdate.error.message }, { status: 400 });
+    }
 
     return NextResponse.json({ onboardingUrl: link.url, accountId: account.id });
   } catch (error) {

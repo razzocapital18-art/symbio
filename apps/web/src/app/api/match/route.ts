@@ -1,23 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { fallbackMatchScore, summarizeMatchReason } from "@/lib/matching";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getSupabaseAdminClient();
     const body = (await request.json()) as { taskId?: string };
     if (!body.taskId) {
       return NextResponse.json({ error: "taskId required" }, { status: 400 });
     }
 
-    const task = await prisma.task.findUnique({ where: { id: body.taskId } });
+    const taskResult = await supabase
+      .from("Task")
+      .select("id,title,description")
+      .eq("id", body.taskId)
+      .maybeSingle();
+
+    if (taskResult.error) {
+      return NextResponse.json({ error: taskResult.error.message }, { status: 400 });
+    }
+
+    const task = taskResult.data as { id: string; title: string; description: string } | null;
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    const humans = await prisma.user.findMany({
-      where: { role: "HUMAN" },
-      take: 10
-    });
+    const humansResult = await supabase
+      .from("User")
+      .select("id,name,skills")
+      .eq("role", "HUMAN")
+      .limit(10);
+
+    if (humansResult.error) {
+      return NextResponse.json({ error: humansResult.error.message }, { status: 400 });
+    }
+
+    const humans = (humansResult.data ?? []) as Array<{ id: string; name: string; skills: string[] }>;
 
     const candidates = await Promise.all(
       humans.map(async (human) => {

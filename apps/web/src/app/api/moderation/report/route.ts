@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { moderationSchema } from "@/lib/validators";
 import { sanitizeText } from "@/lib/sanitize";
-import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/http";
+import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, "report");
@@ -11,23 +11,41 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const supabase = getSupabaseAdminClient();
     const payload = moderationSchema.parse(await request.json());
 
-    const report = await prisma.report.create({
-      data: {
+    const reportId = createEntityId("report");
+    const reportResult = await supabase
+      .from("Report")
+      .insert({
+        id: reportId,
         taskId: payload.taskId,
         reporterId: payload.reporterId,
         reason: sanitizeText(payload.reason),
-        details: payload.details ? sanitizeText(payload.details) : null
-      }
-    });
+        details: payload.details ? sanitizeText(payload.details) : null,
+        status: "OPEN"
+      } as never);
 
-    await prisma.task.update({
-      where: { id: payload.taskId },
-      data: { status: "DISPUTED" }
-    });
+    if (reportResult.error) {
+      return NextResponse.json({ error: reportResult.error?.message ?? "Failed to create report" }, { status: 400 });
+    }
 
-    return NextResponse.json({ report }, { status: 201 });
+    const taskUpdate = await supabase.from("Task").update({ status: "DISPUTED" } as never).eq("id", payload.taskId);
+    if (taskUpdate.error) {
+      return NextResponse.json({ error: taskUpdate.error.message }, { status: 400 });
+    }
+
+    const reportLookup = await supabase
+      .from("Report")
+      .select("id,taskId,reporterId,reason,details,status,createdAt")
+      .eq("id", reportId)
+      .maybeSingle();
+
+    if (reportLookup.error || !reportLookup.data) {
+      return NextResponse.json({ error: reportLookup.error?.message ?? "Failed to load report" }, { status: 400 });
+    }
+
+    return NextResponse.json({ report: reportLookup.data }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 400 });

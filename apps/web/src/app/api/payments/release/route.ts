@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/http";
+import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const schema = z.object({
   hireId: z.string()
@@ -14,17 +14,28 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const supabase = getSupabaseAdminClient();
     const payload = schema.parse(await request.json());
     const platformFeeBps = Number(process.env.PLATFORM_FEE_BPS ?? 800);
 
-    const hire = await prisma.hire.findUnique({
-      where: { id: payload.hireId },
-      include: {
-        task: true,
-        workerUser: { include: { wallet: true } },
-        workerAgent: { include: { wallet: true } }
-      }
-    });
+    const hireResult = await supabase
+      .from("Hire")
+      .select("id,taskId,status,offer,workerUserId,workerAgentId")
+      .eq("id", payload.hireId)
+      .maybeSingle();
+
+    if (hireResult.error) {
+      return NextResponse.json({ error: hireResult.error.message }, { status: 400 });
+    }
+
+    const hire = hireResult.data as {
+      id: string;
+      taskId: string;
+      status: string;
+      offer: number | string;
+      workerUserId: string | null;
+      workerAgentId: string | null;
+    } | null;
 
     if (!hire || hire.status !== "ACTIVE") {
       return NextResponse.json({ error: "Hire not active" }, { status: 400 });
@@ -34,51 +45,57 @@ export async function POST(request: NextRequest) {
     const fee = (gross * platformFeeBps) / 10000;
     const net = Math.max(0, gross - fee);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.hire.update({
-        where: { id: hire.id },
-        data: {
-          status: "COMPLETED"
-        }
-      });
+    const [hireUpdate, taskUpdate] = await Promise.all([
+      supabase.from("Hire").update({ status: "COMPLETED" } as never).eq("id", hire.id),
+      supabase.from("Task").update({ status: "COMPLETED" } as never).eq("id", hire.taskId)
+    ]);
 
-      await tx.task.update({
-        where: { id: hire.taskId },
-        data: { status: "COMPLETED" }
-      });
+    if (hireUpdate.error || taskUpdate.error) {
+      return NextResponse.json({ error: hireUpdate.error?.message ?? taskUpdate.error?.message }, { status: 400 });
+    }
 
-      if (hire.workerUser?.wallet?.id) {
-        await tx.wallet.update({
-          where: { id: hire.workerUser.wallet.id },
-          data: {
-            fiatBalance: { increment: net },
-            transactions: {
-              create: {
-                amount: net,
-                direction: "CREDIT",
-                method: "FIAT",
-                reference: `hire-${hire.id}`
-              }
-            }
-          }
-        });
-      } else if (hire.workerAgent?.wallet?.id) {
-        await tx.wallet.update({
-          where: { id: hire.workerAgent.wallet.id },
-          data: {
-            fiatBalance: { increment: net },
-            transactions: {
-              create: {
-                amount: net,
-                direction: "CREDIT",
-                method: "FIAT",
-                reference: `hire-${hire.id}`
-              }
-            }
-          }
-        });
+    let walletOwnerFilter: { column: "userId" | "agentId"; value: string } | null = null;
+    if (hire.workerUserId) {
+      walletOwnerFilter = { column: "userId", value: hire.workerUserId };
+    } else if (hire.workerAgentId) {
+      walletOwnerFilter = { column: "agentId", value: hire.workerAgentId };
+    }
+
+    if (walletOwnerFilter) {
+      const walletLookup = await supabase
+        .from("Wallet")
+        .select("id,fiatBalance")
+        .eq(walletOwnerFilter.column, walletOwnerFilter.value)
+        .maybeSingle();
+
+      if (walletLookup.error || !walletLookup.data) {
+        return NextResponse.json({ error: walletLookup.error?.message ?? "Worker wallet not found" }, { status: 400 });
       }
-    });
+
+      const workerWallet = walletLookup.data as { id: string; fiatBalance: number | string | null };
+      const nextFiat = Number(workerWallet.fiatBalance ?? 0) + net;
+      const walletUpdate = await supabase
+        .from("Wallet")
+        .update({ fiatBalance: nextFiat } as never)
+        .eq("id", workerWallet.id);
+
+      if (walletUpdate.error) {
+        return NextResponse.json({ error: walletUpdate.error.message }, { status: 400 });
+      }
+
+      const txInsert = await supabase.from("WalletTransaction").insert({
+        id: createEntityId("wtx"),
+        walletId: workerWallet.id,
+        amount: net,
+        direction: "CREDIT",
+        method: "FIAT",
+        reference: `hire-${hire.id}`
+      } as never);
+
+      if (txInsert.error) {
+        return NextResponse.json({ error: txInsert.error.message }, { status: 400 });
+      }
+    }
 
     return NextResponse.json({ hireId: hire.id, netPaid: net, feeCharged: fee });
   } catch (error) {

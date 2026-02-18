@@ -45,18 +45,17 @@ export async function POST(request: NextRequest) {
       txRef = intent.id;
     }
 
+    const investmentId = createEntityId("investment");
     const investmentInsert = await supabase
       .from("Investment")
       .insert({
-        id: createEntityId("investment"),
+        id: investmentId,
         proposalId: payload.proposalId,
         investorId: payload.investorId,
         amount: payload.amount,
         method: payload.method,
         transactionRef: txRef
-      } as never)
-      .select("id,proposalId,investorId,amount,method,transactionRef,createdAt")
-      .single();
+      } as never);
 
     if (investmentInsert.error) {
       return NextResponse.json({ error: investmentInsert.error.message }, { status: 400 });
@@ -72,7 +71,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: proposalUpdate.error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ investment: investmentInsert.data }, { status: 201 });
+    const investmentLookup = await supabase
+      .from("Investment")
+      .select("id,proposalId,investorId,amount,method,transactionRef,createdAt")
+      .eq("id", investmentId)
+      .maybeSingle();
+
+    if (investmentLookup.error || !investmentLookup.data) {
+      return NextResponse.json({ error: investmentLookup.error?.message ?? "Failed to load investment" }, { status: 400 });
+    }
+
+    return NextResponse.json({ investment: investmentLookup.data }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 400 });
