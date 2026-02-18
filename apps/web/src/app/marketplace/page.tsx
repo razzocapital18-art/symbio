@@ -1,23 +1,30 @@
 import { TaskBoard } from "@/components/TaskBoard";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function MarketplacePage() {
   try {
-    const tasks = await prisma.task.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        category: true,
-        type: true,
-        budget: true,
-        location: true
-      }
-    });
+    const supabase = getSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("Task")
+      .select("id,title,description,category,type,budget,location")
+      .order("createdAt", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const tasks = (data ?? []) as Array<{
+      id: string;
+      title: string;
+      description: string;
+      category: string;
+      type: string;
+      budget: number | string;
+      location: string | null;
+    }>;
 
     return (
       <section className="space-y-4">
@@ -27,10 +34,13 @@ export default async function MarketplacePage() {
         </div>
         <TaskBoard
           tasks={tasks.map((task) => ({
-            ...task,
-            category: task.category,
-            type: task.type,
-            budget: task.budget.toString()
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            category: String(task.category),
+            type: String(task.type),
+            budget: String(task.budget),
+            location: task.location
           }))}
         />
       </section>

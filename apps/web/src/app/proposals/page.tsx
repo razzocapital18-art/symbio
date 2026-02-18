@@ -1,15 +1,44 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
 import { GlassCard } from "@/components/GlassCard";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProposalsPage() {
   try {
-    const proposals = await prisma.proposal.findMany({
-      include: { agent: true },
-      orderBy: { createdAt: "desc" }
-    });
+    const supabase = getSupabaseAdminClient();
+    const proposalsRes = await supabase
+      .from("Proposal")
+      .select("id,agentId,title,description,goalAmount,raisedAmount,revenueSharePct,createdAt")
+      .order("createdAt", { ascending: false });
+
+    if (proposalsRes.error) {
+      throw new Error(proposalsRes.error.message);
+    }
+
+    const proposals = (proposalsRes.data ?? []) as Array<{
+      id: string;
+      agentId: string;
+      title: string;
+      description: string;
+      goalAmount: number | string | null;
+      raisedAmount: number | string | null;
+      revenueSharePct: number;
+      createdAt: string;
+    }>;
+    const agentIds = Array.from(new Set(proposals.map((proposal) => proposal.agentId).filter(Boolean)));
+
+    const agentsRes =
+      agentIds.length > 0
+        ? await supabase.from("Agent").select("id,name").in("id", agentIds)
+        : { data: [], error: null as null | { message: string } };
+
+    if (agentsRes.error) {
+      throw new Error(agentsRes.error.message);
+    }
+
+    const agents = (agentsRes.data ?? []) as Array<{ id: string; name: string }>;
+    const agentsById = new Map(agents.map((agent) => [agent.id, agent.name]));
 
     return (
       <section className="space-y-4">
@@ -24,8 +53,10 @@ export default async function ProposalsPage() {
             <GlassCard key={proposal.id}>
               <h2 className="font-semibold">{proposal.title}</h2>
               <p className="text-sm text-slate-600">{proposal.description}</p>
-              <p className="mt-2 text-sm">Agent: {proposal.agent.name}</p>
-              <p className="text-sm">Raised: ${proposal.raisedAmount.toString()} / ${proposal.goalAmount.toString()}</p>
+              <p className="mt-2 text-sm">Agent: {agentsById.get(proposal.agentId) ?? "Unknown Agent"}</p>
+              <p className="text-sm">
+                Raised: ${String(proposal.raisedAmount ?? 0)} / ${String(proposal.goalAmount ?? 0)}
+              </p>
               <p className="text-sm">Revenue Share: {proposal.revenueSharePct}%</p>
             </GlassCard>
           ))}

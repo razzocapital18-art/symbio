@@ -1,36 +1,36 @@
 import { NextResponse } from "next/server";
-import { getResolvedDatabaseSource, getResolvedDatabaseUrl, prisma } from "@/lib/prisma";
-
-function parseDatabaseHostAndPort(connectionString: string | undefined) {
-  if (!connectionString) {
-    return { host: null, port: null };
-  }
-
-  try {
-    const parsed = new URL(connectionString);
-    return { host: parsed.hostname || null, port: parsed.port || null };
-  } catch {
-    return { host: null, port: null };
-  }
-}
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export async function GET() {
-  const resolvedDatabaseUrl = getResolvedDatabaseUrl();
-  const source = getResolvedDatabaseSource();
-  const { host, port } = parseDatabaseHostAndPort(resolvedDatabaseUrl);
-
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    return NextResponse.json({ ok: true, database: "connected", host, port, source });
+    const supabase = getSupabaseAdminClient();
+    const { error, count } = await supabase.from("Task").select("id", { count: "exact", head: true });
+
+    if (error) {
+      return NextResponse.json(
+        {
+          ok: false,
+          database: "disconnected",
+          source: "supabase-rest",
+          error: error.message
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      database: "connected",
+      source: "supabase-rest",
+      sampleCount: count ?? 0
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown database error";
     return NextResponse.json(
       {
         ok: false,
         database: "disconnected",
-        host,
-        port,
-        source,
+        source: "supabase-rest",
         error: message
       },
       { status: 500 }

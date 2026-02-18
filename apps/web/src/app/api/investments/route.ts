@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { investmentSchema } from "@/lib/validators";
 import { stripe } from "@/lib/stripe";
 import { enforceRateLimit } from "@/lib/http";
+import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, "investment");
@@ -11,9 +11,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const supabase = getSupabaseAdminClient();
     const payload = investmentSchema.parse(await request.json());
 
-    const proposal = await prisma.proposal.findUnique({ where: { id: payload.proposalId } });
+    const proposalLookup = await supabase
+      .from("Proposal")
+      .select("id,status,raisedAmount")
+      .eq("id", payload.proposalId)
+      .maybeSingle();
+
+    if (proposalLookup.error) {
+      return NextResponse.json({ error: proposalLookup.error.message }, { status: 400 });
+    }
+
+    const proposal = proposalLookup.data as { id: string; status: string; raisedAmount: number | string | null } | null;
+
     if (!proposal || proposal.status !== "OPEN") {
       return NextResponse.json({ error: "Proposal not open" }, { status: 400 });
     }
@@ -33,27 +45,34 @@ export async function POST(request: NextRequest) {
       txRef = intent.id;
     }
 
-    const [investment] = await prisma.$transaction([
-      prisma.investment.create({
-        data: {
-          proposalId: payload.proposalId,
-          investorId: payload.investorId,
-          amount: payload.amount,
-          method: payload.method,
-          transactionRef: txRef
-        }
-      }),
-      prisma.proposal.update({
-        where: { id: payload.proposalId },
-        data: {
-          raisedAmount: {
-            increment: payload.amount
-          }
-        }
-      })
-    ]);
+    const investmentInsert = await supabase
+      .from("Investment")
+      .insert({
+        id: createEntityId("investment"),
+        proposalId: payload.proposalId,
+        investorId: payload.investorId,
+        amount: payload.amount,
+        method: payload.method,
+        transactionRef: txRef
+      } as never)
+      .select("id,proposalId,investorId,amount,method,transactionRef,createdAt")
+      .single();
 
-    return NextResponse.json({ investment }, { status: 201 });
+    if (investmentInsert.error) {
+      return NextResponse.json({ error: investmentInsert.error.message }, { status: 400 });
+    }
+
+    const updatedRaisedAmount = Number(proposal.raisedAmount ?? 0) + payload.amount;
+    const proposalUpdate = await supabase
+      .from("Proposal")
+      .update({ raisedAmount: updatedRaisedAmount } as never)
+      .eq("id", payload.proposalId);
+
+    if (proposalUpdate.error) {
+      return NextResponse.json({ error: proposalUpdate.error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ investment: investmentInsert.data }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 400 });

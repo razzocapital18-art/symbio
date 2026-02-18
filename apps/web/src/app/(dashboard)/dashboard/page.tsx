@@ -1,22 +1,63 @@
-import { prisma } from "@/lib/prisma";
 import { GlassCard } from "@/components/GlassCard";
 import { WalletPanel } from "@/components/WalletPanel";
 import { ReputationBadge } from "@/components/ReputationBadge";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   try {
-    const [users, agents, tasks, hires, wallets, proposals, reports, investments] = await Promise.all([
-      prisma.user.findMany({ take: 8, orderBy: { createdAt: "desc" } }),
-      prisma.agent.findMany({ take: 8, orderBy: { createdAt: "desc" } }),
-      prisma.task.count(),
-      prisma.hire.count(),
-      prisma.wallet.findMany({ take: 2 }),
-      prisma.proposal.count(),
-      prisma.report.count({ where: { status: "OPEN" } }),
-      prisma.investment.aggregate({ _sum: { amount: true } })
+    const supabase = getSupabaseAdminClient();
+
+    const [
+      usersRes,
+      agentsRes,
+      tasksRes,
+      hiresRes,
+      walletsRes,
+      proposalsRes,
+      reportsRes,
+      investmentsRes
+    ] = await Promise.all([
+      supabase.from("User").select("id,name,reputation,createdAt").order("createdAt", { ascending: false }).limit(8),
+      supabase.from("Agent").select("id,name,description,createdAt").order("createdAt", { ascending: false }).limit(8),
+      supabase.from("Task").select("id", { count: "exact", head: true }),
+      supabase.from("Hire").select("id", { count: "exact", head: true }),
+      supabase.from("Wallet").select("id,fiatBalance,cryptoBalance,cryptoPubkey").limit(2),
+      supabase.from("Proposal").select("id", { count: "exact", head: true }),
+      supabase.from("Report").select("id", { count: "exact", head: true }).eq("status", "OPEN"),
+      supabase.from("Investment").select("amount")
     ]);
+
+    const firstError = [
+      usersRes.error,
+      agentsRes.error,
+      tasksRes.error,
+      hiresRes.error,
+      walletsRes.error,
+      proposalsRes.error,
+      reportsRes.error,
+      investmentsRes.error
+    ].find(Boolean);
+
+    if (firstError) {
+      throw new Error(firstError.message);
+    }
+
+    const users = (usersRes.data ?? []) as Array<{ id: string; name: string; reputation: number }>;
+    const agents = (agentsRes.data ?? []) as Array<{ id: string; name: string; description: string }>;
+    const tasks = tasksRes.count ?? 0;
+    const hires = hiresRes.count ?? 0;
+    const wallets = (walletsRes.data ?? []) as Array<{
+      id: string;
+      fiatBalance: number | string | null;
+      cryptoBalance: number | string | null;
+      cryptoPubkey: string | null;
+    }>;
+    const proposals = proposalsRes.count ?? 0;
+    const reports = reportsRes.count ?? 0;
+    const investmentRows = (investmentsRes.data ?? []) as Array<{ amount: number | string | null }>;
+    const investedCapital = investmentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
 
     return (
       <section className="space-y-6">
@@ -29,7 +70,7 @@ export default async function DashboardPage() {
             ["Hires", hires],
             ["Proposals", proposals],
             ["Open Reports", reports],
-            ["Invested", `$${Number(investments._sum.amount ?? 0).toLocaleString()}`]
+            ["Invested", `$${investedCapital.toLocaleString()}`]
           ].map(([label, value]) => (
             <GlassCard key={label as string}>
               <p className="text-sm text-slate-600">{label}</p>
@@ -68,8 +109,8 @@ export default async function DashboardPage() {
           {wallets.map((wallet) => (
             <WalletPanel
               key={wallet.id}
-              fiat={wallet.fiatBalance.toString()}
-              crypto={wallet.cryptoBalance.toString()}
+              fiat={String(wallet.fiatBalance ?? 0)}
+              crypto={String(wallet.cryptoBalance ?? 0)}
               pubkey={wallet.cryptoPubkey}
             />
           ))}
