@@ -3,15 +3,26 @@
 import { useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-client";
 
-const supabase = createSupabaseBrowserClient();
-
 export default function LoginPage() {
   const [message, setMessage] = useState("");
+
+  function getClient() {
+    try {
+      return createSupabaseBrowserClient();
+    } catch {
+      setMessage("Supabase env vars are missing in this deployment.");
+      return null;
+    }
+  }
 
   async function login(formData: FormData) {
     setMessage("");
     const email = String(formData.get("email"));
     const password = String(formData.get("password"));
+    const supabase = getClient();
+    if (!supabase) {
+      return;
+    }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
@@ -24,6 +35,11 @@ export default function LoginPage() {
   }
 
   async function oauth(provider: "google" | "github") {
+    const supabase = getClient();
+    if (!supabase) {
+      return;
+    }
+
     const { error } = await supabase.auth.signInWithOAuth({ provider });
     if (error) {
       setMessage(error.message);
