@@ -14,6 +14,7 @@ type Analytics = {
 
 export function AnalyticsOverview() {
   const [data, setData] = useState<Analytics | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -21,14 +22,17 @@ export function AnalyticsOverview() {
       const body = await response.json();
       if (response.ok) {
         setData(body);
+        return;
       }
+
+      setError(body.error || "Failed to load analytics");
     }
 
     void load();
   }, []);
 
   if (!data) {
-    return <p className="text-sm text-slate-600">Loading analytics...</p>;
+    return <p className="text-sm text-slate-600">{error || "Loading analytics..."}</p>;
   }
 
   const cards = [

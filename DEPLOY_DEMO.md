@@ -1,80 +1,69 @@
-# Fastest Deploy + Demo
+# Symbio: Easiest Deploy + Demo
 
-## 1. Fastest local demo (5-10 min)
+## 1) Fastest production deploy (Vercel + Render + Supabase)
+
+### A. Deploy realtime first (Render)
+
+1. Create a new Web Service from this repo.
+2. Root: repo root.
+3. Dockerfile path: `apps/realtime/Dockerfile`.
+4. Set env vars:
+   - `NODE_ENV=production`
+   - `PORT=4000`
+   - `NEXT_PUBLIC_APP_URL=https://<your-vercel-domain>`
+5. Deploy and copy URL (example: `https://symbio-realtime.onrender.com`).
+
+### B. Deploy web app (Vercel)
+
+1. Import repo.
+2. Root directory: `apps/web`.
+3. Set env vars:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `JWT_SECRET`
+   - `NEXT_PUBLIC_APP_URL=https://<your-vercel-domain>`
+   - `REALTIME_SERVER_URL=https://<your-render-url>`
+   - `NEXT_PUBLIC_REALTIME_SERVER_URL=https://<your-render-url>`
+   - `OPENAI_API_KEY` (optional but recommended for match explanations)
+   - `STRIPE_SECRET_KEY` (required for fiat investments/topups)
+   - `STRIPE_WEBHOOK_SECRET` (required only for webhook route)
+   - `PLATFORM_FEE_BPS=800`
+   - `SOLANA_RPC_URL=https://api.devnet.solana.com`
+   - `REDIS_URL` (optional; enables persistent rate-limit/queue)
+4. Deploy.
+
+Note: `DATABASE_URL` is only needed for Prisma CLI (migrations/seed), not for runtime web requests.
+
+## 2) One-time DB bootstrap
+
+Run locally with your Supabase Postgres connection string:
 
 ```bash
 cd /Users/sammyrandazzo/Documents/New\ project
+cp .env.example .env
+# set DATABASE_URL in .env to Supabase transaction/session URL
 npm install
-./scripts/demo-local.sh
-```
-
-Open:
-- Web UI: http://localhost:3000
-- Realtime health: http://localhost:4000/health
-
-Stop:
-
-```bash
-./scripts/demo-stop.sh
-```
-
-## 2. Fastest cloud deploy (Vercel + Render + Supabase)
-
-### A) Supabase (database/auth/storage)
-
-1. Create a Supabase project.
-2. In SQL editor, create `proofs` storage bucket (public or signed URL flow).
-3. Get:
-- Project URL
-- Anon key
-- Service role key
-- Postgres connection string
-
-### B) Realtime service on Render
-
-1. Push repo to GitHub.
-2. In Render, create Blueprint deploy from repo (uses `render.yaml`).
-3. Set env vars on `symbio-realtime`:
-- `NEXT_PUBLIC_APP_URL` = your Vercel domain
-
-### C) Web app on Vercel
-
-1. New Project from same repo.
-2. Set root directory to `apps/web`.
-3. Add env vars:
-- `DATABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `JWT_SECRET`
-- `REDIS_URL` (Upstash)
-- `STRIPE_SECRET_KEY`
-- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
-- `OPENAI_API_KEY`
-- `REALTIME_SERVER_URL` (Render service URL)
-- `NEXT_PUBLIC_REALTIME_SERVER_URL` (same URL)
-- `SOLANA_RPC_URL`
-- `PLATFORM_FEE_BPS` (e.g. 800)
-
-4. Deploy.
-
-### D) Run migrations + seed against Supabase DB
-
-From local machine with prod `DATABASE_URL` exported:
-
-```bash
 npm run prisma:migrate
 npm run prisma:seed
 ```
 
-## 3. Demo flow script (investor-ready)
+## 3) Production smoke checks
 
-1. Open `/signup-builder`, create builder.
-2. Open `/agents/new`, deploy agent (shows generated Solana wallet pubkey).
-3. Open `/tasks/new`, post an `AGENT_TO_HUMAN` task.
-4. Open `/marketplace`, show bidirectional listings/filter/search.
-5. Hit `POST /api/match` with the task id to show AI match suggestions.
-6. Open `/rooms/<id>`, show realtime negotiation stream.
-7. Open `/proposals`, then `/invest`, invest in a venture.
-8. Use `POST /api/payments/release` to complete a hire and show payout economics.
-9. Open `/dashboard` to review aggregate stats/wallet/reputation.
+1. Open `https://<vercel-domain>/api/health/db`
+2. Expected:
+   - `"ok": true`
+   - `"database": "connected"`
+3. Open `https://<render-domain>/health`
+4. Expected: healthy realtime payload.
+
+## 4) Demo flow
+
+1. Signup as Human: `/signup-human`
+2. Signup as Builder: `/signup-builder`
+3. Deploy agent: `/agents/new`
+4. Post tasks + match/hire: `/marketplace`
+5. Live collaboration room: `/rooms/<task-id>`
+6. Create ventures: `/proposals`
+7. Invest: `/invest`
+8. Review metrics: `/dashboard`, `/admin/analytics`, `/admin/moderation`

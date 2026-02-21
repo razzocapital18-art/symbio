@@ -13,18 +13,26 @@ export default async function DashboardPage() {
       usersRes,
       agentsRes,
       tasksRes,
+      recentTasksRes,
       hiresRes,
       walletsRes,
       proposalsRes,
+      recentProposalsRes,
       reportsRes,
       investmentsRes
     ] = await Promise.all([
       supabase.from("User").select("id,name,reputation,createdAt").order("createdAt", { ascending: false }).limit(8),
       supabase.from("Agent").select("id,name,description,createdAt").order("createdAt", { ascending: false }).limit(8),
       supabase.from("Task").select("id", { count: "exact", head: true }),
+      supabase.from("Task").select("id,title,status,budget,category,type,createdAt").order("createdAt", { ascending: false }).limit(6),
       supabase.from("Hire").select("id", { count: "exact", head: true }),
       supabase.from("Wallet").select("id,fiatBalance,cryptoBalance,cryptoPubkey").limit(2),
       supabase.from("Proposal").select("id", { count: "exact", head: true }),
+      supabase
+        .from("Proposal")
+        .select("id,title,status,goalAmount,raisedAmount,revenueSharePct,createdAt")
+        .order("createdAt", { ascending: false })
+        .limit(6),
       supabase.from("Report").select("id", { count: "exact", head: true }).eq("status", "OPEN"),
       supabase.from("Investment").select("amount")
     ]);
@@ -33,9 +41,11 @@ export default async function DashboardPage() {
       usersRes.error,
       agentsRes.error,
       tasksRes.error,
+      recentTasksRes.error,
       hiresRes.error,
       walletsRes.error,
       proposalsRes.error,
+      recentProposalsRes.error,
       reportsRes.error,
       investmentsRes.error
     ].find(Boolean);
@@ -47,6 +57,15 @@ export default async function DashboardPage() {
     const users = (usersRes.data ?? []) as Array<{ id: string; name: string; reputation: number }>;
     const agents = (agentsRes.data ?? []) as Array<{ id: string; name: string; description: string }>;
     const tasks = tasksRes.count ?? 0;
+    const recentTasks = (recentTasksRes.data ?? []) as Array<{
+      id: string;
+      title: string;
+      status: string;
+      budget: number | string;
+      category: string;
+      type: string;
+      createdAt: string;
+    }>;
     const hires = hiresRes.count ?? 0;
     const wallets = (walletsRes.data ?? []) as Array<{
       id: string;
@@ -55,6 +74,15 @@ export default async function DashboardPage() {
       cryptoPubkey: string | null;
     }>;
     const proposals = proposalsRes.count ?? 0;
+    const recentProposals = (recentProposalsRes.data ?? []) as Array<{
+      id: string;
+      title: string;
+      status: string;
+      goalAmount: number | string | null;
+      raisedAmount: number | string | null;
+      revenueSharePct: number;
+      createdAt: string;
+    }>;
     const reports = reportsRes.count ?? 0;
     const investmentRows = (investmentsRes.data ?? []) as Array<{ amount: number | string | null }>;
     const investedCapital = investmentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
@@ -114,6 +142,43 @@ export default async function DashboardPage() {
               pubkey={wallet.cryptoPubkey}
             />
           ))}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <GlassCard>
+            <h2 className="font-semibold">Recent Tasks</h2>
+            <div className="mt-3 space-y-2">
+              {recentTasks.map((task) => (
+                <div key={task.id} className="rounded-lg border border-slate-100 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium">{task.title}</p>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{task.status}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    ${String(task.budget)} | {task.category} | {task.type}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <h2 className="font-semibold">Recent Fundraising</h2>
+            <div className="mt-3 space-y-2">
+              {recentProposals.map((proposal) => (
+                <div key={proposal.id} className="rounded-lg border border-slate-100 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium">{proposal.title}</p>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{proposal.status}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    ${String(proposal.raisedAmount ?? 0)} / ${String(proposal.goalAmount ?? 0)} raised | Rev Share{" "}
+                    {proposal.revenueSharePct}%
+                  </p>
+                </div>
+              ))}
+            </div>
+          </GlassCard>
         </div>
       </section>
     );

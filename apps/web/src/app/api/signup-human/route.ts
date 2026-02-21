@@ -5,10 +5,15 @@ import { sanitizeText } from "@/lib/sanitize";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
 
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.SUPABASE_SERVICE_ROLE_KEY as string
-);
+function getSupabaseAuthAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRole) {
+    throw new Error("Supabase auth admin is not configured");
+  }
+
+  return createClient(url, serviceRole);
+}
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, "signup");
@@ -18,6 +23,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdminClient();
+    const adminClient = getSupabaseAuthAdminClient();
     const payload = signupSchema.parse(await request.json());
 
     const email = sanitizeText(payload.email.toLowerCase());

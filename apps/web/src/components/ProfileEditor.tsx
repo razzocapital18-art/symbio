@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 type ProfilePayload = {
   id: string;
@@ -18,15 +20,15 @@ type ProfilePayload = {
 };
 
 export function ProfileEditor() {
-  const [userId, setUserId] = useState("");
+  const { loading: userLoading, context, isAuthenticated } = useCurrentUser();
   const [profile, setProfile] = useState<ProfilePayload | null>(null);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
-  async function loadProfile() {
+  async function loadProfileByCurrentUser() {
     setMessage("");
-    const response = await fetch(`/api/profile?userId=${encodeURIComponent(userId)}`);
+    const response = await fetch("/api/profile", { cache: "no-store" });
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || "Failed to load profile");
@@ -34,6 +36,12 @@ export function ProfileEditor() {
     }
     setProfile(body.user);
   }
+
+  useEffect(() => {
+    if (context?.user?.id) {
+      void loadProfileByCurrentUser();
+    }
+  }, [context?.user?.id]);
 
   async function saveProfile(formData: FormData) {
     if (!profile) {
@@ -47,7 +55,6 @@ export function ProfileEditor() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: profile.id,
         name: String(formData.get("name")),
         location: String(formData.get("location")),
         portfolioUrl: String(formData.get("portfolioUrl")),
@@ -101,21 +108,27 @@ export function ProfileEditor() {
     window.location.href = body.onboardingUrl;
   }
 
+  if (userLoading) {
+    return <p className="text-sm text-slate-600">Loading profile...</p>;
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+        <h2 className="text-xl font-semibold text-amber-700">Login required</h2>
+        <p className="mt-2 text-sm text-amber-700">Sign in to manage your profile and payout settings.</p>
+        <Link href="/login" className="mt-3 inline-block text-sm font-medium text-amber-800 underline">
+          Go to login
+        </Link>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h2 className="text-lg font-semibold">Load Profile</h2>
-        <div className="mt-3 flex gap-2">
-          <input
-            value={userId}
-            onChange={(event) => setUserId(event.target.value)}
-            placeholder="User ID"
-            className="flex-1 rounded-lg border border-slate-200 px-3 py-2"
-          />
-          <button onClick={loadProfile} className="rounded-lg bg-slate-900 px-4 py-2 text-white">
-            Load
-          </button>
-        </div>
+        <h2 className="text-lg font-semibold">Account</h2>
+        <p className="mt-1 text-sm text-slate-600">{context?.user.name} ({context?.user.email})</p>
       </div>
 
       {profile ? (
@@ -154,7 +167,13 @@ export function ProfileEditor() {
             {connecting ? "Connecting..." : "Connect Stripe Payouts"}
           </button>
         </form>
-      ) : null}
+      ) : (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm text-amber-700">
+            Profile record not found for this auth account. Create an account via signup to initialize profile + wallet.
+          </p>
+        </section>
+      )}
 
       {message ? <p className="text-sm text-slate-700">{message}</p> : null}
     </section>

@@ -4,6 +4,7 @@ import { sanitizeRichText, sanitizeText } from "@/lib/sanitize";
 import { generateAgentWallet } from "@/lib/solana";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, "deploy-agent");
@@ -12,23 +13,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+    if (current.role !== "AGENT_BUILDER") {
+      return NextResponse.json({ error: "Only Agent Builders can deploy agents" }, { status: 403 });
+    }
+
     const payload = deployAgentSchema.parse(await request.json());
     const supabase = getSupabaseAdminClient();
-
-    const builderResult = await supabase
-      .from("User")
-      .select("id,role")
-      .eq("id", payload.ownerId)
-      .maybeSingle();
-
-    if (builderResult.error) {
-      return NextResponse.json({ error: builderResult.error.message }, { status: 400 });
+    if (payload.ownerId && payload.ownerId !== current.id) {
+      return NextResponse.json({ error: "Forbidden ownerId" }, { status: 403 });
     }
-
-    const builder = builderResult.data as { id: string; role: string } | null;
-    if (!builder || builder.role !== "AGENT_BUILDER") {
-      return NextResponse.json({ error: "Owner must be an Agent Builder" }, { status: 403 });
-    }
+    const ownerId = current.id;
 
     const wallet = generateAgentWallet();
     const agentId = createEntityId("agent");
@@ -38,7 +36,7 @@ export async function POST(request: NextRequest) {
       .from("Agent")
       .insert({
         id: agentId,
-        ownerId: payload.ownerId,
+        ownerId,
         name: sanitizeText(payload.name),
         description: sanitizeRichText(payload.description),
         goals: payload.goals.map(sanitizeText),

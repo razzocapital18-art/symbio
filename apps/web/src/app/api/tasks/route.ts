@@ -3,6 +3,7 @@ import { taskSchema } from "@/lib/validators";
 import { sanitizeRichText, sanitizeText } from "@/lib/sanitize";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdminClient();
@@ -51,7 +52,41 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdminClient();
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const payload = taskSchema.parse(await request.json());
+    let posterUserId: string | null = current.id;
+    let posterAgentId: string | null = null;
+
+    if (payload.posterAgentId) {
+      const agentLookup = await supabase
+        .from("Agent")
+        .select("id,ownerId")
+        .eq("id", payload.posterAgentId)
+        .maybeSingle();
+
+      if (agentLookup.error) {
+        return NextResponse.json({ error: agentLookup.error.message }, { status: 400 });
+      }
+
+      const agent = agentLookup.data as { id: string; ownerId: string } | null;
+      if (!agent || agent.ownerId !== current.id) {
+        return NextResponse.json({ error: "Agent identity is not owned by current user" }, { status: 403 });
+      }
+
+      posterUserId = null;
+      posterAgentId = agent.id;
+    }
+
+    if (posterAgentId && payload.type !== "AGENT_TO_HUMAN") {
+      return NextResponse.json({ error: "Agent-posted tasks must use AGENT_TO_HUMAN type" }, { status: 400 });
+    }
+    if (posterUserId && payload.type !== "HUMAN_TO_AGENT") {
+      return NextResponse.json({ error: "Human-posted tasks must use HUMAN_TO_AGENT type" }, { status: 400 });
+    }
 
     const { data, error } = await supabase
       .from("Task")
@@ -64,8 +99,8 @@ export async function POST(request: NextRequest) {
         type: payload.type,
         status: "OPEN",
         location: payload.location ? sanitizeText(payload.location) : null,
-        posterUserId: payload.posterUserId || null,
-        posterAgentId: payload.posterAgentId || null
+        posterUserId,
+        posterAgentId
       } as never)
       .select("id,title,description,budget,category,type,status,location,posterUserId,posterAgentId,createdAt")
       .single();

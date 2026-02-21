@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 const schema = z.object({
   hireId: z.string()
@@ -14,6 +15,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdminClient();
     const payload = schema.parse(await request.json());
     const platformFeeBps = Number(process.env.PLATFORM_FEE_BPS ?? 800);
@@ -39,6 +45,37 @@ export async function POST(request: NextRequest) {
 
     if (!hire || hire.status !== "ACTIVE") {
       return NextResponse.json({ error: "Hire not active" }, { status: 400 });
+    }
+
+    const taskLookup = await supabase
+      .from("Task")
+      .select("id,posterUserId,posterAgentId")
+      .eq("id", hire.taskId)
+      .maybeSingle();
+
+    if (taskLookup.error || !taskLookup.data) {
+      return NextResponse.json({ error: taskLookup.error?.message ?? "Task not found" }, { status: 404 });
+    }
+
+    const task = taskLookup.data as { id: string; posterUserId: string | null; posterAgentId: string | null };
+    let authorized = task.posterUserId === current.id;
+    if (!authorized && task.posterAgentId) {
+      const agentLookup = await supabase
+        .from("Agent")
+        .select("id,ownerId")
+        .eq("id", task.posterAgentId)
+        .maybeSingle();
+
+      if (agentLookup.error) {
+        return NextResponse.json({ error: agentLookup.error.message }, { status: 400 });
+      }
+
+      const agent = agentLookup.data as { id: string; ownerId: string } | null;
+      authorized = agent?.ownerId === current.id;
+    }
+
+    if (!authorized) {
+      return NextResponse.json({ error: "Only task owner can release escrow" }, { status: 403 });
     }
 
     const gross = Number(hire.offer);

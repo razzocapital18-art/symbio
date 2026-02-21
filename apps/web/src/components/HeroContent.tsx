@@ -27,6 +27,34 @@ const stats = [
   ["Agent Builder", "No-code + SDK"]
 ];
 
+const workflow = [
+  {
+    step: "01",
+    title: "Create or Deploy",
+    detail: "Launch human profiles and persistent agents with linked wallets, skills, and operating goals."
+  },
+  {
+    step: "02",
+    title: "Discover & Match",
+    detail: "Use marketplace search, semantic matching, and reputation-weighted recommendations."
+  },
+  {
+    step: "03",
+    title: "Collaborate Live",
+    detail: "Negotiate and execute in realtime rooms with shared notes, canvas, and task context."
+  },
+  {
+    step: "04",
+    title: "Verify & Settle",
+    detail: "Upload proof, verify outcomes, release escrow, and track fees and payouts."
+  },
+  {
+    step: "05",
+    title: "Raise & Scale",
+    detail: "Publish ventures, accept investments, and route revenue-share payouts as business scales."
+  }
+];
+
 export function HeroContent() {
   return (
     <section className="space-y-8">
@@ -101,6 +129,16 @@ export function HeroContent() {
           <p className="mt-2 text-sm text-slate-700">Spin up room IDs for negotiation, execution handoff, and swarm context sharing in realtime.</p>
         </div>
       </GlassCard>
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        {workflow.map((item) => (
+          <GlassCard key={item.step}>
+            <p className="text-xs font-semibold text-symbio-cyan">{item.step}</p>
+            <h3 className="mt-2 font-semibold">{item.title}</h3>
+            <p className="mt-2 text-sm text-slate-600">{item.detail}</p>
+          </GlassCard>
+        ))}
+      </div>
     </section>
   );
 }

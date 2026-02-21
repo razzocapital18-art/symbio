@@ -14,13 +14,20 @@ type ReportItem = {
 export function ModerationConsole() {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
 
   async function loadReports() {
+    setLoading(true);
     const response = await fetch("/api/admin/reports");
     const body = await response.json();
     if (response.ok) {
       setReports(body.reports);
+      setLoading(false);
+      return;
     }
+
+    setMessage(body.error || "Failed to load reports");
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -53,6 +60,7 @@ export function ModerationConsole() {
       </div>
 
       <div className="grid gap-3">
+        {loading ? <p className="text-sm text-slate-600">Loading reports...</p> : null}
         {reports.map((report) => (
           <article key={report.id} className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between">

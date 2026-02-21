@@ -13,7 +13,7 @@ export const signupSchema = z.object({
 });
 
 export const deployAgentSchema = z.object({
-  ownerId: z.string().min(10),
+  ownerId: z.string().min(10).optional(),
   name: z.string().min(2).max(100),
   description: z.string().min(20).max(1000),
   goals: z.array(z.string().min(2).max(120)).min(1),
@@ -21,25 +21,21 @@ export const deployAgentSchema = z.object({
   memory: z.record(z.any()).default({})
 });
 
-export const taskSchema = z
-  .object({
-    title: z.string().min(4).max(120),
-    description: z.string().min(20).max(4000),
-    budget: z.coerce.number().positive().max(1000000),
-    category: z.nativeEnum(TaskCategory),
-    type: z.nativeEnum(TaskType),
-    location: z.string().max(120).optional(),
-    posterUserId: z.string().optional(),
-    posterAgentId: z.string().optional()
-  })
-  .refine((data) => data.posterUserId || data.posterAgentId, {
-    message: "Either posterUserId or posterAgentId is required"
-  });
+export const taskSchema = z.object({
+  title: z.string().min(4).max(120),
+  description: z.string().min(20).max(4000),
+  budget: z.coerce.number().positive().max(1000000),
+  category: z.nativeEnum(TaskCategory),
+  type: z.nativeEnum(TaskType),
+  location: z.string().max(120).optional(),
+  posterUserId: z.string().optional(),
+  posterAgentId: z.string().optional()
+});
 
 export const hireSchema = z
   .object({
     taskId: z.string(),
-    posterId: z.string(),
+    posterId: z.string().optional(),
     workerUserId: z.string().optional(),
     workerAgentId: z.string().optional(),
     offer: z.coerce.number().positive().max(1000000)
@@ -49,7 +45,7 @@ export const hireSchema = z
   });
 
 export const proposalSchema = z.object({
-  ownerId: z.string(),
+  ownerId: z.string().optional(),
   agentId: z.string(),
   title: z.string().min(4).max(140),
   description: z.string().min(30).max(5000),
@@ -58,7 +54,7 @@ export const proposalSchema = z.object({
 });
 
 export const investmentSchema = z.object({
-  investorId: z.string(),
+  investorId: z.string().optional(),
   proposalId: z.string(),
   amount: z.coerce.number().positive(),
   method: z.enum(["FIAT", "CRYPTO"])
@@ -66,13 +62,13 @@ export const investmentSchema = z.object({
 
 export const moderationSchema = z.object({
   taskId: z.string(),
-  reporterId: z.string(),
+  reporterId: z.string().optional(),
   reason: z.string().min(5).max(200),
   details: z.string().max(1000).optional()
 });
 
 export const profileUpdateSchema = z.object({
-  userId: z.string(),
+  userId: z.string().optional(),
   name: z.string().min(2).max(80).optional(),
   location: z.string().max(80).optional(),
   portfolioUrl: z.string().url().optional(),

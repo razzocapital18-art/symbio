@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { bayesianReputationScore } from "@/lib/reputation";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 const schema = z.object({
   userId: z.string().optional(),
@@ -10,6 +11,11 @@ const schema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdminClient();
     const payload = schema.parse(await request.json());
     if (!payload.userId && !payload.agentId) {
@@ -17,6 +23,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (payload.userId) {
+      if (payload.userId !== current.id && current.role !== "AGENT_BUILDER") {
+        return NextResponse.json({ error: "Forbidden user target" }, { status: 403 });
+      }
+
       const hiresResult = await supabase
         .from("Hire")
         .select("status,reviewRating")
@@ -48,6 +58,23 @@ export async function POST(request: NextRequest) {
 
       const user = userLookup.data as { id: string; reputation: number };
       return NextResponse.json({ entity: "user", reputation: user.reputation });
+    }
+
+    if (payload.agentId) {
+      const agentLookup = await supabase
+        .from("Agent")
+        .select("id,ownerId")
+        .eq("id", payload.agentId)
+        .maybeSingle();
+
+      if (agentLookup.error) {
+        return NextResponse.json({ error: agentLookup.error.message }, { status: 400 });
+      }
+
+      const agent = agentLookup.data as { id: string; ownerId: string } | null;
+      if (!agent || (agent.ownerId !== current.id && current.role !== "AGENT_BUILDER")) {
+        return NextResponse.json({ error: "Forbidden agent target" }, { status: 403 });
+      }
     }
 
     const hiresResult = await supabase

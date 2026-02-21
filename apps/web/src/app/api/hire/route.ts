@@ -4,6 +4,7 @@ import { enforceRateLimit } from "@/lib/http";
 import { createFiatEscrowIntent } from "@/lib/escrow";
 import { hireQueue } from "@/lib/queue";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, "hire");
@@ -13,10 +14,19 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdminClient();
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const payload = hireSchema.parse(await request.json());
+    if (payload.posterId && payload.posterId !== current.id) {
+      return NextResponse.json({ error: "Forbidden posterId" }, { status: 403 });
+    }
+
     const taskResult = await supabase
       .from("Task")
-      .select("id,status")
+      .select("id,status,posterUserId,posterAgentId")
       .eq("id", payload.taskId)
       .maybeSingle();
 
@@ -24,10 +34,59 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: taskResult.error.message }, { status: 400 });
     }
 
-    const task = taskResult.data as { id: string; status: string } | null;
+    const task = taskResult.data as {
+      id: string;
+      status: string;
+      posterUserId: string | null;
+      posterAgentId: string | null;
+    } | null;
 
     if (!task || task.status !== "OPEN") {
       return NextResponse.json({ error: "Task is not open for hiring" }, { status: 400 });
+    }
+
+    let canManageTask = task.posterUserId === current.id;
+    if (!canManageTask && task.posterAgentId) {
+      const posterAgentLookup = await supabase
+        .from("Agent")
+        .select("id,ownerId")
+        .eq("id", task.posterAgentId)
+        .maybeSingle();
+
+      if (posterAgentLookup.error) {
+        return NextResponse.json({ error: posterAgentLookup.error.message }, { status: 400 });
+      }
+
+      const posterAgent = posterAgentLookup.data as { id: string; ownerId: string } | null;
+      canManageTask = posterAgent?.ownerId === current.id;
+    }
+
+    if (!canManageTask) {
+      return NextResponse.json({ error: "Only the task owner can create a hire" }, { status: 403 });
+    }
+
+    if (payload.workerUserId && payload.workerUserId === current.id) {
+      return NextResponse.json({ error: "Cannot hire yourself as worker" }, { status: 400 });
+    }
+    if (payload.workerUserId) {
+      const workerLookup = await supabase.from("User").select("id").eq("id", payload.workerUserId).maybeSingle();
+      if (workerLookup.error || !workerLookup.data) {
+        return NextResponse.json({ error: workerLookup.error?.message ?? "Worker user not found" }, { status: 404 });
+      }
+    }
+    if (payload.workerAgentId) {
+      const workerAgentLookup = await supabase
+        .from("Agent")
+        .select("id,ownerId")
+        .eq("id", payload.workerAgentId)
+        .maybeSingle();
+      if (workerAgentLookup.error || !workerAgentLookup.data) {
+        return NextResponse.json({ error: workerAgentLookup.error?.message ?? "Worker agent not found" }, { status: 404 });
+      }
+      const workerAgent = workerAgentLookup.data as { id: string; ownerId: string };
+      if (workerAgent.ownerId === current.id) {
+        return NextResponse.json({ error: "Cannot hire your own agent as worker" }, { status: 400 });
+      }
     }
 
     const escrowIntent = await createFiatEscrowIntent(Math.round(payload.offer * 100));
@@ -38,7 +97,7 @@ export async function POST(request: NextRequest) {
       .insert({
         id: hireId,
         taskId: payload.taskId,
-        posterId: payload.posterId,
+        posterId: current.id,
         workerUserId: payload.workerUserId || null,
         workerAgentId: payload.workerAgentId || null,
         offer: payload.offer,
@@ -58,7 +117,7 @@ export async function POST(request: NextRequest) {
     await hireQueue.add("hire-created", {
       hireId,
       taskId: payload.taskId,
-      posterId: payload.posterId
+      posterId: current.id
     });
 
     const hireLookup = await supabase

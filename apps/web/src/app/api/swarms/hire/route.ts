@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 const schema = z.object({
   leaderAgentId: z.string(),
@@ -17,11 +18,39 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+    if (current.role !== "AGENT_BUILDER") {
+      return NextResponse.json({ error: "Only Agent Builders can orchestrate swarms" }, { status: 403 });
+    }
+
     const supabase = getSupabaseAdminClient();
     const payload = schema.parse(await request.json());
 
     if (payload.leaderAgentId === payload.memberAgentId) {
       return NextResponse.json({ error: "Agent cannot hire itself" }, { status: 400 });
+    }
+
+    const [leaderAgentLookup, memberAgentLookup] = await Promise.all([
+      supabase.from("Agent").select("id,ownerId").eq("id", payload.leaderAgentId).maybeSingle(),
+      supabase.from("Agent").select("id").eq("id", payload.memberAgentId).maybeSingle()
+    ]);
+
+    if (leaderAgentLookup.error || memberAgentLookup.error) {
+      return NextResponse.json(
+        { error: leaderAgentLookup.error?.message ?? memberAgentLookup.error?.message },
+        { status: 400 }
+      );
+    }
+
+    const leaderAgent = leaderAgentLookup.data as { id: string; ownerId: string } | null;
+    if (!leaderAgent || leaderAgent.ownerId !== current.id) {
+      return NextResponse.json({ error: "Only leader owner can create swarm links" }, { status: 403 });
+    }
+    if (!memberAgentLookup.data) {
+      return NextResponse.json({ error: "Member agent not found" }, { status: 404 });
     }
 
     const edgeId = createEntityId("swarm");

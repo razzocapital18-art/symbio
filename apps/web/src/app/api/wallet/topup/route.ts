@@ -3,6 +3,7 @@ import { z } from "zod";
 import { stripe } from "@/lib/stripe";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 const schema = z.object({
   walletId: z.string(),
@@ -17,8 +18,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdminClient();
     const payload = schema.parse(await request.json());
+    if (payload.method === "FIAT" && !stripe) {
+      return NextResponse.json({ error: "Stripe is not configured for fiat top-ups" }, { status: 400 });
+    }
 
     let reference = `crypto-topup-${crypto.randomUUID()}`;
     if (payload.method === "FIAT" && stripe) {
@@ -35,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     const walletLookup = await supabase
       .from("Wallet")
-      .select("id,fiatBalance,cryptoBalance")
+      .select("id,userId,agentId,fiatBalance,cryptoBalance")
       .eq("id", payload.walletId)
       .maybeSingle();
 
@@ -43,7 +52,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: walletLookup.error?.message ?? "Wallet not found" }, { status: 400 });
     }
 
-    const walletRow = walletLookup.data as { id: string; fiatBalance: number | string | null; cryptoBalance: number | string | null };
+    const walletRow = walletLookup.data as {
+      id: string;
+      userId: string | null;
+      agentId: string | null;
+      fiatBalance: number | string | null;
+      cryptoBalance: number | string | null;
+    };
+    let authorized = walletRow.userId === current.id;
+    if (!authorized && walletRow.agentId) {
+      const agentLookup = await supabase
+        .from("Agent")
+        .select("id,ownerId")
+        .eq("id", walletRow.agentId)
+        .maybeSingle();
+      if (agentLookup.error) {
+        return NextResponse.json({ error: agentLookup.error.message }, { status: 400 });
+      }
+      const agent = agentLookup.data as { id: string; ownerId: string } | null;
+      authorized = agent?.ownerId === current.id;
+    }
+
+    if (!authorized) {
+      return NextResponse.json({ error: "Forbidden wallet access" }, { status: 403 });
+    }
+
     const currentFiat = Number(walletRow.fiatBalance ?? 0);
     const currentCrypto = Number(walletRow.cryptoBalance ?? 0);
     const nextFiat = payload.method === "FIAT" ? currentFiat + payload.amount : currentFiat;

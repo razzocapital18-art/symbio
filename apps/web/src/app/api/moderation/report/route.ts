@@ -3,6 +3,7 @@ import { moderationSchema } from "@/lib/validators";
 import { sanitizeText } from "@/lib/sanitize";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, "report");
@@ -11,8 +12,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdminClient();
     const payload = moderationSchema.parse(await request.json());
+    if (payload.reporterId && payload.reporterId !== current.id) {
+      return NextResponse.json({ error: "Forbidden reporterId" }, { status: 403 });
+    }
 
     const reportId = createEntityId("report");
     const reportResult = await supabase
@@ -20,7 +29,7 @@ export async function POST(request: NextRequest) {
       .insert({
         id: reportId,
         taskId: payload.taskId,
-        reporterId: payload.reporterId,
+        reporterId: current.id,
         reason: sanitizeText(payload.reason),
         details: payload.details ? sanitizeText(payload.details) : null,
         status: "OPEN"

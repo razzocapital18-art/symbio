@@ -3,6 +3,7 @@ import { investmentSchema } from "@/lib/validators";
 import { stripe } from "@/lib/stripe";
 import { enforceRateLimit } from "@/lib/http";
 import { createEntityId, getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, "investment");
@@ -11,12 +12,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdminClient();
     const payload = investmentSchema.parse(await request.json());
+    if (payload.investorId && payload.investorId !== current.id) {
+      return NextResponse.json({ error: "Forbidden investorId" }, { status: 403 });
+    }
+    if (payload.method === "FIAT" && !stripe) {
+      return NextResponse.json({ error: "Stripe is not configured for fiat investments" }, { status: 400 });
+    }
 
     const proposalLookup = await supabase
       .from("Proposal")
-      .select("id,status,raisedAmount")
+      .select("id,status,raisedAmount,goalAmount")
       .eq("id", payload.proposalId)
       .maybeSingle();
 
@@ -24,7 +36,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: proposalLookup.error.message }, { status: 400 });
     }
 
-    const proposal = proposalLookup.data as { id: string; status: string; raisedAmount: number | string | null } | null;
+    const proposal = proposalLookup.data as {
+      id: string;
+      status: string;
+      raisedAmount: number | string | null;
+      goalAmount: number | string | null;
+    } | null;
 
     if (!proposal || proposal.status !== "OPEN") {
       return NextResponse.json({ error: "Proposal not open" }, { status: 400 });
@@ -38,7 +55,7 @@ export async function POST(request: NextRequest) {
         currency: "usd",
         metadata: {
           proposalId: payload.proposalId,
-          investorId: payload.investorId,
+          investorId: current.id,
           type: "agent-investment"
         }
       });
@@ -51,7 +68,7 @@ export async function POST(request: NextRequest) {
       .insert({
         id: investmentId,
         proposalId: payload.proposalId,
-        investorId: payload.investorId,
+        investorId: current.id,
         amount: payload.amount,
         method: payload.method,
         transactionRef: txRef
@@ -62,9 +79,15 @@ export async function POST(request: NextRequest) {
     }
 
     const updatedRaisedAmount = Number(proposal.raisedAmount ?? 0) + payload.amount;
+    const goalAmount = Number(proposal.goalAmount ?? 0);
     const proposalUpdate = await supabase
       .from("Proposal")
-      .update({ raisedAmount: updatedRaisedAmount } as never)
+      .update(
+        {
+          raisedAmount: updatedRaisedAmount,
+          status: goalAmount > 0 && updatedRaisedAmount >= goalAmount ? "FUNDED" : proposal.status
+        } as never
+      )
       .eq("id", payload.proposalId);
 
     if (proposalUpdate.error) {

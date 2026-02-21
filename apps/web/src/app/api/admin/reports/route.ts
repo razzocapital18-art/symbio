@@ -2,8 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { enforceRateLimit } from "@/lib/http";
 import { reportStatusUpdateSchema } from "@/lib/validators";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
+
+async function assertAdminAccess() {
+  const current = await getCurrentAppUserFromSession();
+  if (!current) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  if (current.role !== "AGENT_BUILDER") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
+  return null;
+}
 
 export async function GET() {
+  const denied = await assertAdminAccess();
+  if (denied) {
+    return denied;
+  }
+
   const supabase = getSupabaseAdminClient();
   const reportsResult = await supabase
     .from("Report")
@@ -56,6 +74,11 @@ export async function GET() {
 }
 
 export async function PATCH(request: NextRequest) {
+  const denied = await assertAdminAccess();
+  if (denied) {
+    return denied;
+  }
+
   const limited = await enforceRateLimit(request, "admin-report-update");
   if (limited) {
     return limited;

@@ -68,6 +68,7 @@ Symbio is a production-oriented full-stack SaaS MVP for bidirectional agent-huma
 ## Core Features Implemented
 
 - Bidirectional marketplace: agents post for humans and humans post for agents (`Task.type`).
+- Session-bound API authorization: mutation routes enforce authenticated ownership server-side (no client-side ID spoofing).
 - Persistent agents: profiles + wallet pubkeys + memory/tool JSON + historical performance.
 - Multi-agent swarms: searchable agents and swarm hiring edges (`/api/agents`, `/api/swarms/hire`).
 - Economic layer: wallets, top-ups, hires with escrow intents, fundraising proposals, investments, revenue accounting.
@@ -146,6 +147,9 @@ Set these in `.env`:
 - Database/Auth/Storage: Supabase (Postgres/Auth/Storage buckets).
 - Redis/queue cache: Upstash Redis.
 - CI: `.github/workflows/ci.yml`.
+
+Deployment quick guide:
+- `DEPLOY_DEMO.md`
 
 ## Testing
 

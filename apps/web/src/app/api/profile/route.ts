@@ -3,13 +3,21 @@ import { profileUpdateSchema } from "@/lib/validators";
 import { sanitizeText } from "@/lib/sanitize";
 import { enforceRateLimit } from "@/lib/http";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 export async function GET(request: NextRequest) {
-  const supabase = getSupabaseAdminClient();
-  const userId = request.nextUrl.searchParams.get("userId");
-  if (!userId) {
-    return NextResponse.json({ error: "userId required" }, { status: 400 });
+  const current = await getCurrentAppUserFromSession();
+  if (!current) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
+
+  const supabase = getSupabaseAdminClient();
+  const requestedUserId = request.nextUrl.searchParams.get("userId");
+  if (requestedUserId && requestedUserId !== current.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const userId = current.id;
 
   const [userRes, walletRes, postedTasksRes, hiresRes] = await Promise.all([
     supabase
@@ -51,7 +59,16 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const supabase = getSupabaseAdminClient();
+    const current = await getCurrentAppUserFromSession();
+    if (!current) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const payload = profileUpdateSchema.parse(await request.json());
+    if (payload.userId && payload.userId !== current.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const targetUserId = current.id;
 
     const updateResult = await supabase
       .from("User")
@@ -62,7 +79,7 @@ export async function PATCH(request: NextRequest) {
         bio: payload.bio ? sanitizeText(payload.bio) : undefined,
         skills: payload.skills?.map((skill) => sanitizeText(skill)).filter(Boolean)
       } as never)
-      .eq("id", payload.userId);
+      .eq("id", targetUserId);
 
     if (updateResult.error) {
       return NextResponse.json({ error: updateResult.error?.message ?? "Profile update failed" }, { status: 400 });
@@ -71,7 +88,7 @@ export async function PATCH(request: NextRequest) {
     const userLookup = await supabase
       .from("User")
       .select("id,authId,email,name,role,skills,location,portfolioUrl,bio,reputation,createdAt")
-      .eq("id", payload.userId)
+      .eq("id", targetUserId)
       .maybeSingle();
 
     if (userLookup.error || !userLookup.data) {

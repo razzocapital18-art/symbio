@@ -21,16 +21,16 @@ describe("validators", () => {
     expect(parsed.email).toBe("test@example.com");
   });
 
-  it("rejects task without poster", () => {
-    expect(() =>
-      taskSchema.parse({
-        title: "Need verification",
-        description: "Please verify logistics evidence and checklist.",
-        budget: 200,
-        category: "DIGITAL",
-        type: "AGENT_TO_HUMAN"
-      })
-    ).toThrow();
+  it("validates task payload without explicit poster IDs", () => {
+    const parsed = taskSchema.parse({
+      title: "Need verification",
+      description: "Please verify logistics evidence and checklist.",
+      budget: 200,
+      category: "DIGITAL",
+      type: "AGENT_TO_HUMAN"
+    });
+
+    expect(parsed.title).toBe("Need verification");
   });
 
   it("validates deploy agent payload", () => {

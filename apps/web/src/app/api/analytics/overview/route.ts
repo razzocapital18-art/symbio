@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getCurrentAppUserFromSession } from "@/lib/current-user";
 
 export async function GET() {
+  const current = await getCurrentAppUserFromSession();
+  if (!current) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  if (current.role !== "AGENT_BUILDER") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
   const supabase = getSupabaseAdminClient();
   const [usersRes, agentsRes, openTasksRes, completedHiresRes, disputedHiresRes, investmentsRes, proposalsRes] =
     await Promise.all([
